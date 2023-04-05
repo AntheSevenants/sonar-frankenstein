@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('command', type=str,
                     help='run | start | stop | rm')
 parser.add_argument('alpino_count', type=int, nargs='?',
-                    default=8, help='Name of the output file')
+                    default=8, help='The number of Alpino instances to spawn')
 
 args = parser.parse_args()
 
@@ -37,6 +37,6 @@ for alpino_id in list(range(1, args.alpino_count + 1)):
         arguments = ["docker", "stop", container_name]
     elif args.command == "rm":
         # Stop existing Docker containers
-        arguments = ["docker", "rm", container_name]
+        arguments = ["docker", "rm", "-f", container_name]
 
     subprocess.run(arguments)
