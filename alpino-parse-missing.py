@@ -9,7 +9,6 @@ import concurrent.futures
 
 from pathlib import Path
 from tqdm.auto import tqdm
-from flashtext import KeywordProcessor
 
 from corpus2alpino.converter import Converter
 from corpus2alpino.annotators.alpino import AlpinoAnnotator
@@ -29,8 +28,8 @@ parser.add_argument('sonar_500_split_treebank_path', type=str,
                     help='Path to the SONAR500 split SONAR500 treebank directory')
 parser.add_argument('sonar_500_output_path', type=str,
                     help='Path to the SONAR500 split SONAR500 treebank directory')
-parser.add_argument('closed_items_path', type=str,
-					help='Path to the JSON file containing the closed items which will narrow down the search space')
+parser.add_argument('alpino_count', type=int, nargs='?',
+                    default=8, help='The number of Alpino instances to spawn')
 
 args = parser.parse_args()
 
@@ -39,15 +38,10 @@ t1 = time.perf_counter()
 
 df = pd.read_csv(args.alpino_csv, dtype={'document': str})
 
+errors = []
+os.makedirs("errors/", exist_ok=True)
+
 sentence_re = re.compile(">(.*)<\/")
-
-# We use the "closed items" class as a way to narrow down the search space
-with open(args.closed_items_path, "rt") as reader:
-    closed_class_items = json.loads(reader.read())
-
-# Keyword processor
-keyword_processor = KeywordProcessor()
-keyword_processor.add_keywords_from_dict(closed_class_items)
 
 def parse_sentence(subcorpus, document, sentence_id, alpino_instance):
     sentence_path = f"{args.sonar_500_split_treebank_path}/{subcorpus}/{document}/{sentence_id}.xml"
@@ -58,7 +52,11 @@ def parse_sentence(subcorpus, document, sentence_id, alpino_instance):
 
     if os.path.exists(output_file):
         # Already parsed
-        return True
+        return None
+
+    error = {"subcorpus": subcorpus,
+              "document": document,
+              "sentence": sentence_id}
 
     with sentence_path.open("rt") as reader:
         # Go over each line (this is still faster than XML parsing)
@@ -69,13 +67,10 @@ def parse_sentence(subcorpus, document, sentence_id, alpino_instance):
 
                     if len(sentence) > 9800:
                         print("Skipping this spam")
-                        return True
+                        return error
                     
                     # Needed because special characters are encoded
                     sentence = html.unescape(sentence)
-
-                    if len(keyword_processor.extract_keywords(line)) == 0:
-                        return True
 
                     temp_file = f"temp_{alpino_instance}.txt"
 
@@ -86,7 +81,7 @@ def parse_sentence(subcorpus, document, sentence_id, alpino_instance):
 
                     #print(sentence)
 
-                    alpino = AlpinoAnnotator("192.168.0.72", 7000 + alpino_instance)
+                    alpino = AlpinoAnnotator("localhost", 7000 + alpino_instance)
 
                     converter = Converter(FilesystemCollector([temp_file]),
                                           # Not needed when using the PaQuWriter
@@ -100,17 +95,19 @@ def parse_sentence(subcorpus, document, sentence_id, alpino_instance):
                     parses = converter.convert()
 
                     output = ''.join(parses)
+                    
+                    if output == "":
+                        return error
+
                     output = output.replace("sentid=\"0-0\"",
                                             f"sentid=\"{subcorpus}-{document}.{sentence_id}\"")
 
                     with open(output_file, "wt") as writer:
                         writer.write(output)
 
-                    return True
+                    return None
                 
-    return True
-
-
+    return None
     
 # Register a tqdm progress bar
 progress_bar = tqdm(total=len(df), desc='Sentences processed')
@@ -119,7 +116,7 @@ with concurrent.futures.ProcessPoolExecutor() as executor:
     futures = []
     alpino_instance = 1
     for index, row in df.iterrows():
-        if alpino_instance == 9:
+        if alpino_instance == args.alpino_count + 1:
             alpino_instance = 1
 
         # For each file, spawn a new process
@@ -131,8 +128,13 @@ with concurrent.futures.ProcessPoolExecutor() as executor:
     # Loop over future results as they become available
     for future in concurrent.futures.as_completed(futures):
         progress_bar.update(n=1)  # Increments counter
-        # Unpack the tuple
-        #future.result()
+        result = future.result()
+        if result is not None:
+            errors.append(result)
+
+print(errors)
+df_errors = pd.DataFrame(errors)
+df_errors.to_csv(f"errors/{Path(args.alpino_csv).stem}_errors.csv", index=False)
 
 t2 = time.perf_counter()
 
