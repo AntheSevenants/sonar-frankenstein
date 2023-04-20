@@ -23,34 +23,12 @@ if not os.path.exists(args.sonar_treebank_destination_path):
     raise FileNotFoundError("Output directory does not exist")
 
 SENTENCES_PER_FILE = 10000
+MAXIMUM_CHARACTER_COUNT = 40000000
 
 # Start the performance counter
 t1 = time.perf_counter()
 
 subcorpora = [ Path(subcorpus).stem for subcorpus in glob(f"{args.sonar_treebank_source_path}/*/") ]
-
-def read_file(pfin):
-    buf = []
-
-    # Open the data file
-    with pfin.open("rt") as reader:
-        # Go over each line (this is still faster than XML parsing)    
-        buffer_open = False
-        for line in reader:
-                # Open the buffer for writing when sentence opening tag has been found
-                if line.startswith("<alpino_ds "):
-                    buffer_open = True
-                elif line.startswith("</alpino_ds"):
-                    buf.append(line)
-
-                    # Reset flags
-                    buffer_open = False
-
-                    return buf
-
-                # Only add lines if the buffer is open
-                if buffer_open:
-                    buf.append(line)
 
 def pack_subcorpus(subcorpus):
     files_counter = 1
@@ -65,32 +43,17 @@ def pack_subcorpus(subcorpus):
     # Find all subcorpus files which we need to pack
     subcorpus_files = list(Path(f"{args.sonar_treebank_source_path}/{subcorpus}/").rglob("*.xml"))
 
-    # upper limit
-    # for recovery, we check how many files have already been created
-    # this gives us a clue to where we can restart the script
-    test_index = 1
-    while True:
-        pack_id = str(test_index).zfill(7)
-        output_filename = f"{subcorpus_output_dir}/{subcorpus}-{pack_id}.xml"
-        if os.path.exists(output_filename):
-            test_index += 1
-        else:
-            upper_limit = (test_index - 1) * SENTENCES_PER_FILE
-            print(f"Upper limit for {subcorpus} is {upper_limit}")
-            break
-
     pack_buffer = []
     for index, subcorpus_file in enumerate(subcorpus_files):
-        if index + 1 <= upper_limit:
-            continue
-
         # We read each file and get its contents
-        file_buffer = read_file(Path(subcorpus_file))
+        with open(subcorpus_file, "r") as f:
+            file_buffer = f.readlines()[1:]
+
         # Append the file buffer to the current buffer
         pack_buffer = pack_buffer + file_buffer
         files_read += 1
 
-        # If total number of files is reached, write output file
+        # If total number of characters is reached, write output file
         # Or, if at end of queue
         if files_read == SENTENCES_PER_FILE or len(subcorpus_files) == index + 1:
             # Add XML header
@@ -105,6 +68,10 @@ def pack_subcorpus(subcorpus):
             files_counter += 1
             # Reset files read
             files_read = 0
+            # Reset character count
+            total_char_count = 0
+            # Reset buffer...
+            pack_buffer = []
 
 #progress_bar = tqdm(total=len(subcorpora), desc='Progress')
 #for subcorpus in subcorpora:
