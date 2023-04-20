@@ -65,8 +65,25 @@ def pack_subcorpus(subcorpus):
     # Find all subcorpus files which we need to pack
     subcorpus_files = list(Path(f"{args.sonar_treebank_source_path}/{subcorpus}/").rglob("*.xml"))
 
+    # upper limit
+    # for recovery, we check how many files have already been created
+    # this gives us a clue to where we can restart the script
+    test_index = 1
+    while True:
+        pack_id = str(test_index).zfill(7)
+        output_filename = f"{subcorpus_output_dir}/{subcorpus}-{pack_id}.xml"
+        if os.path.exists(output_filename):
+            test_index += 1
+        else:
+            upper_limit = (test_index - 1) * SENTENCES_PER_FILE
+            print(f"Upper limit for {subcorpus} is {upper_limit}")
+            break
+
     pack_buffer = []
     for index, subcorpus_file in enumerate(subcorpus_files):
+        if index + 1 <= upper_limit:
+            continue
+
         # We read each file and get its contents
         file_buffer = read_file(Path(subcorpus_file))
         # Append the file buffer to the current buffer
