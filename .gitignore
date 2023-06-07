@@ -132,3 +132,6 @@ output/*
 parses/
 errors/
 temp_*.txt
+
+packed_corpus/*
+packed_corpus_2/*
