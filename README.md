@@ -43,3 +43,7 @@ With all overlapping sentences copied, it was time to find the sentences which w
 ## Step 4: Parsing remaining sentences
 
 To parse the remaining sentences, I used my own [alpino-server Docker container](https://github.com/AntheSevenants/alpino-server). To accelerate the parses, I ran several Docker containers in parallel.
+
+## Step 5: Putting everything together
+
+I copied the parses of the remaining sentences to the 'original' split SoNaR corpus. Then, I concatenated the sentences of each subcorpus in groups of 10,000 sentences to obtain workable files. This finally resulted in a fully Alpino-parsed and complete SoNaR corpus.
